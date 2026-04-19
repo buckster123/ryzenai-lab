@@ -1,0 +1,39 @@
+# python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.env
+.uv/
+
+# models / weights / data
+*.onnx
+*.gguf
+*.safetensors
+*.bin
+*.pt
+*.pth
+models/
+weights/
+cache/
+!experiments/**/test_*.onnx
+
+# build
+build/
+dist/
+*.so
+*.o
+*.xclbin
+
+# ide
+.vscode/
+.idea/
+*.swp
+
+# os
+.DS_Store
+
+# large logs
+*.log
+logs/
