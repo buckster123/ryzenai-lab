@@ -1,0 +1,12 @@
+{
+  "initialization_time_seconds": 3.397,
+  "model_path": "/home/andre/run_llm/Qwen2.5_3B_Instruct_rai_1.7.1_npu_4K/",
+  "overall_peak_memory_gb": 8.96,
+  "prompt_lengths": {
+    "128": {
+      "avg_tokens_per_second": 27.03,
+      "avg_ttft_seconds": 0.13,
+      "peak_memory_gb": 8.96
+    }
+  }
+}

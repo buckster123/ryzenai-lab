@@ -1,0 +1,12 @@
+{
+  "initialization_time_seconds": 5.94,
+  "model_path": "/home/andre/run_llm/Mistral-7B-Instruct-v0.3_rai_1.7.1_npu_4K/",
+  "overall_peak_memory_gb": 11.91,
+  "prompt_lengths": {
+    "128": {
+      "avg_tokens_per_second": 13.61,
+      "avg_ttft_seconds": 0.22,
+      "peak_memory_gb": 11.91
+    }
+  }
+}

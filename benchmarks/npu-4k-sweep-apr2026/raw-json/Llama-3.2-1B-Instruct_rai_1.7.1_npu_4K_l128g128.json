@@ -1,0 +1,12 @@
+{
+  "initialization_time_seconds": 2.025,
+  "model_path": "/home/andre/run_llm/Llama-3.2-1B-Instruct_rai_1.7.1_npu_4K/",
+  "overall_peak_memory_gb": 6.84,
+  "prompt_lengths": {
+    "128": {
+      "avg_tokens_per_second": 64.6,
+      "avg_ttft_seconds": 0.06,
+      "peak_memory_gb": 6.84
+    }
+  }
+}

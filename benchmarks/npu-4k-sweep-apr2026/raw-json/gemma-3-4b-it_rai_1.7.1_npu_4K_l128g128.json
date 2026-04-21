@@ -1,0 +1,12 @@
+{
+  "initialization_time_seconds": 4.761,
+  "model_path": "./",
+  "overall_peak_memory_gb": 10.07,
+  "prompt_lengths": {
+    "128": {
+      "avg_tokens_per_second": 17.17,
+      "avg_ttft_seconds": 0.4,
+      "peak_memory_gb": 10.07
+    }
+  }
+}

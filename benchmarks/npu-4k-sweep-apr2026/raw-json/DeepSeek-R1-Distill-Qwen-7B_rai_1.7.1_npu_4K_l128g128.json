@@ -1,0 +1,12 @@
+{
+  "initialization_time_seconds": 6.814,
+  "model_path": "/home/andre/run_llm/DeepSeek-R1-Distill-Qwen-7B_rai_1.7.1_npu_4K/",
+  "overall_peak_memory_gb": 14.91,
+  "prompt_lengths": {
+    "128": {
+      "avg_tokens_per_second": 13.36,
+      "avg_ttft_seconds": 0.21,
+      "peak_memory_gb": 14.91
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+  "initialization_time_seconds": 4.794,
+  "model_path": "/home/andre/run_llm/Phi-4-mini-instruct_rai_1.7.1_npu_4K/",
+  "overall_peak_memory_gb": 13.0,
+  "prompt_lengths": {
+    "128": {
+      "avg_tokens_per_second": 22.62,
+      "avg_ttft_seconds": 0.15,
+      "peak_memory_gb": 13.0
+    }
+  }
+}
