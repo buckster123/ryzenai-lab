@@ -1,0 +1,186 @@
+#!/usr/bin/env python3
+"""
+npu-chat — a tiny one-file CLI to chat with an LLM on the AMD Ryzen AI NPU.
+
+Usage:
+    npu-chat                                 # interactive chat w/ default model
+    npu-chat --model phi-4-mini              # pick a preset
+    npu-chat --model amd/SomeModel_rai_1.7.1_npu_4K   # or any HF repo
+    npu-chat --list                          # show presets
+    npu-chat --bench                         # run a quick bench instead of chat
+
+Prerequisites (see the repo README for full setup):
+    - Ryzen AI SDK 1.7.1 installed, venv at ~/ryzen_ai/venv
+    - amdxdna driver + XRT working (xrt-smi examine sees your NPU)
+    - NPU pmode=turbo recommended (sudo /opt/xilinx/xrt/bin/xrt-smi configure --pmode turbo)
+    - HuggingFace token (`hf auth login`) for downloading models
+
+This script sources the Ryzen AI venv automatically if invoked from outside it.
+"""
+import argparse
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+# --- Presets: curated models that are known to work on Krackan ---
+PRESETS = {
+    # Fastest decode — background / dreaming / reranking
+    "smollm2-135m":       ("amd/SmolLM2-135M-Instruct_rai_1.7.1_npu_4K",   "137 t/s decode,  1.4GB"),
+    # Snappy chat
+    "llama-1b":           ("amd/Llama-3.2-1B-Instruct_rai_1.7.1_npu_4K",    "65 t/s decode,  6.8GB"),
+    "qwen-1.5b":          ("amd/Qwen-2.5_1.5B_Instruct_rai_1.7.1_npu_4K",   "44 t/s decode,  6.7GB"),
+    # Sweet spot for most tasks
+    "llama-3b":           ("amd/Llama-3.2-3B-Instruct_rai_1.7.1_npu_4K",    "25 t/s decode, 10.3GB  (recommended default)"),
+    "qwen-3b":            ("amd/Qwen2.5_3B_Instruct_rai_1.7.1_npu_4K",      "27 t/s decode,  9.0GB"),
+    "phi-4-mini":         ("amd/Phi-4-mini-instruct_rai_1.7.1_npu_4K",      "23 t/s decode, 13.0GB"),
+    "phi-4-mini-reason":  ("amd/Phi-4-mini-reasoning_rai_1.7.1_npu_4K",     "23 t/s decode, 13.0GB  (reasoner)"),
+    "gemma-3-4b":         ("amd/gemma-3-4b-it_rai_1.7.1_npu_4K",            "17 t/s decode, 10.1GB  (multimodal, needs fixup)"),
+    # Full-size assistants
+    "mistral-7b":         ("amd/Mistral-7B-Instruct-v0.3_rai_1.7.1_npu_4K", "14 t/s decode, 11.9GB"),
+    "qwen-7b":            ("amd/Qwen2.5-7B-Instruct_rai_1.7.1_npu_4K",      "13 t/s decode, 14.7GB"),
+    "deepseek-r1-7b":     ("amd/DeepSeek-R1-Distill-Qwen-7B_rai_1.7.1_npu_4K","13 t/s decode, 14.9GB  (reasoner)"),
+    "llama-8b":           ("amd/Meta-Llama-3.1-8B-Instruct_rai_1.7.1_npu_4K","13 t/s decode, 15.8GB"),
+}
+DEFAULT = "llama-3b"
+
+HOME = Path.home()
+VENV = HOME / "ryzen_ai" / "venv"
+MODELS_DIR = HOME / "run_llm"
+EXAMPLES = VENV / "LLM" / "examples"
+XRT_SETUP = Path("/opt/xilinx/xrt/setup.sh")
+
+
+def info(s): print(f"\033[36m[npu-chat]\033[0m {s}")
+def warn(s): print(f"\033[33m[npu-chat]\033[0m {s}", file=sys.stderr)
+def die(s, code=1): print(f"\033[31m[npu-chat]\033[0m {s}", file=sys.stderr); sys.exit(code)
+
+
+def list_presets():
+    print("Curated Krackan-validated presets:\n")
+    for k, (repo, perf) in PRESETS.items():
+        marker = " * default" if k == DEFAULT else ""
+        print(f"  {k:<22}  {perf}{marker}")
+        print(f"  {'':<22}  {repo}")
+    print("\nOr pass any amd/...NPU-4K model directly, e.g.:")
+    print("  npu-chat --model amd/Qwen2.5-Coder-7B-Instruct_rai_1.7.1_npu_4K")
+
+
+def check_prereqs():
+    if not VENV.exists():
+        die(f"Ryzen AI venv not found at {VENV}. Install SDK 1.7.1 first "
+            f"(see https://github.com/buckster123/ryzenai-lab).")
+    if not XRT_SETUP.exists():
+        die(f"XRT not installed at /opt/xilinx/xrt. Build xdna-driver first.")
+    if not (EXAMPLES / "model_chat.py").exists():
+        die(f"model_chat.py not found at {EXAMPLES}. Re-run install_ryzen_ai.sh?")
+
+
+def setup_env():
+    """Source XRT + venv into this process's env."""
+    # Source-equivalent via subprocess to capture env vars
+    cmd = f'source {XRT_SETUP} >/dev/null && source {VENV}/bin/activate && env'
+    out = subprocess.check_output(["bash", "-c", cmd], text=True)
+    for line in out.splitlines():
+        if "=" in line:
+            k, _, v = line.partition("=")
+            os.environ[k] = v
+    os.environ["RYZEN_AI_INSTALLATION_PATH"] = str(VENV)
+    dep_lib = str(VENV / "deployment" / "lib")
+    existing = os.environ.get("LD_LIBRARY_PATH", "")
+    os.environ["LD_LIBRARY_PATH"] = f"/lib/x86_64-linux-gnu:{dep_lib}:{existing}"
+    os.environ["RYZENAI_EP_PATH"] = f"{dep_lib}/libonnxruntime_providers_ryzenai.so"
+    # xrt.ini for LLM workloads
+    xrt_ini = MODELS_DIR / "xrt.ini"
+    MODELS_DIR.mkdir(parents=True, exist_ok=True)
+    xrt_ini.write_text("[Debug]\nnum_heap_pages = 8\n")
+    os.environ["XRT_INI_PATH"] = str(xrt_ini)
+
+
+def resolve_model(name):
+    if name in PRESETS:
+        return PRESETS[name][0]
+    if "/" in name:
+        return name
+    die(f"Unknown preset '{name}'. Try --list.")
+
+
+def model_dir_for(repo):
+    return MODELS_DIR / repo.split("/")[-1]
+
+
+def download_if_missing(repo):
+    d = model_dir_for(repo)
+    if (d / "genai_config.json").exists():
+        info(f"Model already present: {d}")
+        return d
+    info(f"Downloading {repo} to {d} (this may take a few minutes on first run)...")
+    r = subprocess.run(["hf", "download", repo, "--local-dir", str(d)],
+                       env=os.environ)
+    if r.returncode != 0:
+        die(f"hf download failed. Try `hf auth login` first.")
+    # gemma-3 fixup
+    if "gemma-3" in repo and not (d / "gemma-3-4b-npu-basic-text-logit-pruning").exists():
+        info("Applying gemma-3 dd_cache symlink fixup...")
+        stub = d / "gemma-3-4b-npu-basic-text-logit-pruning"
+        stub.mkdir(exist_ok=True)
+        link = stub / "partitioned"
+        if not link.exists():
+            link.symlink_to("../partitioned")
+    return d
+
+
+def run_chat(model_dir, repo):
+    info(f"Starting NPU chat with {repo}")
+    info(f"(Ctrl-C to exit. First prompt has a ~5s init delay.)")
+    extra = []
+    # Gemma needs explicit max_length
+    if "gemma-3" in repo:
+        extra = ["--max_length", "4096"]
+    cmd = [sys.executable, str(EXAMPLES / "model_chat.py"),
+           "-i", str(model_dir)] + extra
+    os.execvpe(cmd[0], cmd, os.environ)
+
+
+def run_bench(model_dir, repo):
+    info(f"Running short bench on {repo}")
+    extra = []
+    if "gemma-3" in repo:
+        extra = ["-ml", "4096"]
+    cmd = [str(EXAMPLES / "model_benchmark"),
+           "-i", str(model_dir),
+           "-l", "128", "-g", "128", "-r", "3", "-w", "1",
+           "-f", str(EXAMPLES / "amd_genai_prompt.txt")] + extra
+    os.execvpe(cmd[0], cmd, os.environ)
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__,
+                                 formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--model", "-m", default=DEFAULT,
+                    help="Preset name or HuggingFace repo id (default: %(default)s)")
+    ap.add_argument("--list", "-l", action="store_true",
+                    help="List curated presets and exit")
+    ap.add_argument("--bench", "-b", action="store_true",
+                    help="Run a short benchmark instead of an interactive chat")
+    args = ap.parse_args()
+
+    if args.list:
+        list_presets(); return
+
+    check_prereqs()
+    setup_env()
+
+    repo = resolve_model(args.model)
+    info(f"Target model: {repo}")
+    model_dir = download_if_missing(repo)
+
+    if args.bench:
+        run_bench(model_dir, repo)
+    else:
+        run_chat(model_dir, repo)
+
+
+if __name__ == "__main__":
+    main()

@@ -64,6 +64,20 @@ model_benchmark -i Llama-3.2-3B-Instruct_rai_1.7.1_npu_4K/ \
 
 Or run the whole sweep with [`scripts/bench_suite.sh`](scripts/bench_suite.sh).
 
+## Starter CLI
+
+Once you have the stack installed, the easiest path to chatting with a model is [`experiments/npu-chat/`](experiments/npu-chat/):
+
+```bash
+cp experiments/npu-chat/npu-chat ~/.local/bin/ && chmod +x ~/.local/bin/npu-chat
+npu-chat --list               # see curated presets
+npu-chat                      # chat with Llama-3.2-3B on the NPU
+npu-chat -m phi-4-mini        # switch models
+npu-chat -b -m llama-3b       # quick benchmark instead
+```
+
+It downloads the model on first use, sources the right env, applies known model-specific fixups (e.g. gemma-3's `dd_cache` symlink), and hands off to AMD's stock `model_chat.py`.
+
 ## Key findings
 
 - **Hybrid flow is broken on Linux 1.7.1** — no iGPU execution provider (only VitisAI + CPU). "Hybrid" models fall back to NPU+CPU and run *slower* than NPU-only. Always prefer the [`ryzen-ai-171-npu-4k`](https://huggingface.co/collections/amd/ryzen-ai-171-npu-4k) or [`-npu-16k`](https://huggingface.co/collections/amd/ryzen-ai-171-npu-16k) collections on Linux.
